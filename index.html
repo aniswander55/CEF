@@ -1077,6 +1077,27 @@
             background: rgba(255,255,255,0.2);
         }
 
+        /* Drag and Drop Styles for Event Tabs */
+        .narrow-tab {
+            cursor: move;
+            user-select: none;
+        }
+
+        .narrow-tab.dragging {
+            opacity: 0.5;
+            transform: rotate(5deg);
+            z-index: 1000;
+        }
+
+        .narrow-tab.drag-over {
+            border-left: 3px solid #4facfe;
+            background: rgba(79, 172, 254, 0.1);
+        }
+
+        .narrow-tab-bar.drag-active {
+            background: rgba(79, 172, 254, 0.05);
+        }
+
 
         .btn {
             padding: 10px 16px;
@@ -2278,6 +2299,7 @@
         // Initialize the application
         document.addEventListener('DOMContentLoaded', function() {
             loadData();
+            loadEventOrder(); // Load saved event tab order
             renderTabs();
             renderFacesheet();
             
@@ -2340,6 +2362,9 @@
                     ${event.name}
                     <span class="narrow-tab-close" onclick="closeEvent(${event.id}, event)">&times;</span>
                 `;
+                tab.setAttribute('data-event-id', event.id);
+                tab.draggable = true;
+                
                 tab.onclick = () => switchEvent(event.id);
                 
                 // Add right-click event listener for editing
@@ -2348,9 +2373,121 @@
                     e.stopPropagation();
                     editEventName(event.id);
                 });
+
+                // Add drag and drop functionality
+                setupTabDragAndDrop(tab);
                 
                 narrowTabBar.appendChild(tab);
             });
+        }
+
+        // Tab Drag and Drop Functions
+        function setupTabDragAndDrop(tab) {
+            tab.addEventListener('dragstart', function(e) {
+                this.classList.add('dragging');
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/html', this.outerHTML);
+                e.dataTransfer.setData('text/plain', this.getAttribute('data-event-id'));
+                
+                // Add visual feedback to tab bar
+                document.getElementById('narrowTabBar').classList.add('drag-active');
+            });
+
+            tab.addEventListener('dragend', function(e) {
+                this.classList.remove('dragging');
+                document.getElementById('narrowTabBar').classList.remove('drag-active');
+                
+                // Remove drag-over class from all tabs
+                document.querySelectorAll('.narrow-tab').forEach(t => {
+                    t.classList.remove('drag-over');
+                });
+            });
+
+            tab.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                
+                // Add visual feedback
+                this.classList.add('drag-over');
+            });
+
+            tab.addEventListener('dragleave', function(e) {
+                this.classList.remove('drag-over');
+            });
+
+            tab.addEventListener('drop', function(e) {
+                e.preventDefault();
+                this.classList.remove('drag-over');
+                
+                const draggedEventId = parseInt(e.dataTransfer.getData('text/plain'));
+                const targetEventId = parseInt(this.getAttribute('data-event-id'));
+                
+                if (draggedEventId !== targetEventId) {
+                    reorderEventTabs(draggedEventId, targetEventId);
+                }
+            });
+        }
+
+        function reorderEventTabs(draggedEventId, targetEventId) {
+            // Find the indices of the dragged and target events
+            const draggedIndex = facesheetData.events.findIndex(e => e.id === draggedEventId);
+            const targetIndex = facesheetData.events.findIndex(e => e.id === targetEventId);
+            
+            if (draggedIndex === -1 || targetIndex === -1) return;
+            
+            // Remove the dragged event from its current position
+            const draggedEvent = facesheetData.events.splice(draggedIndex, 1)[0];
+            
+            // Insert it at the target position
+            facesheetData.events.splice(targetIndex, 0, draggedEvent);
+            
+            // Save the new order
+            saveEventOrder();
+            
+            // Re-render the tabs
+            renderTabs();
+            
+            // Show success message
+            showMessage('Event tabs reordered successfully!', 'success');
+        }
+
+        function saveEventOrder() {
+            // Save the event order to localStorage
+            const eventOrder = facesheetData.events.map(event => event.id);
+            localStorage.setItem('facesheetEventOrder', JSON.stringify(eventOrder));
+            
+            // Also save the main data
+            localStorage.setItem('facesheetData', JSON.stringify(facesheetData));
+        }
+
+        function loadEventOrder() {
+            // Load saved event order from localStorage
+            const savedOrder = localStorage.getItem('facesheetEventOrder');
+            if (savedOrder) {
+                try {
+                    const eventOrder = JSON.parse(savedOrder);
+                    
+                    // Reorder events based on saved order
+                    const reorderedEvents = [];
+                    eventOrder.forEach(eventId => {
+                        const event = facesheetData.events.find(e => e.id === eventId);
+                        if (event) {
+                            reorderedEvents.push(event);
+                        }
+                    });
+                    
+                    // Add any new events that weren't in the saved order
+                    facesheetData.events.forEach(event => {
+                        if (!eventOrder.includes(event.id)) {
+                            reorderedEvents.push(event);
+                        }
+                    });
+                    
+                    facesheetData.events = reorderedEvents;
+                } catch (error) {
+                    console.error('Error loading event order:', error);
+                }
+            }
         }
 
         function renderFacesheet() {
@@ -2394,6 +2531,7 @@
                     companies: []
                 };
                 facesheetData.events.push(newEvent);
+                saveEventOrder(); // Save the new event order
                 switchEvent(newEvent.id);
                 showMessage('New event created!', 'success');
             }
